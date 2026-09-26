@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Line, Sparkles } from '@react-three/drei'
 import * as THREE from 'three'
+import { AnimatePresence, motion, useMotionValue, useSpring } from 'framer-motion'
 import { ArrowDown, BrainCircuit, Check, Clipboard, Database, FileQuestion, LoaderCircle, RefreshCw, Search, Sparkles as SparklesIcon, UsersRound, XCircle } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
@@ -9,6 +10,52 @@ const fallbackRoles = ['ML Intern', 'Backend Intern', 'Frontend Intern']
 const sphericalPoint = (lat, lon, r = 2.75) => {
   const la = lat * Math.PI / 180; const lo = lon * Math.PI / 180
   return new THREE.Vector3(r * Math.cos(la) * Math.cos(lo), r * Math.sin(la), r * Math.cos(la) * Math.sin(lo))
+}
+
+function CustomCursor() {
+  const pointerX = useMotionValue(-100)
+  const pointerY = useMotionValue(-100)
+  const ringX = useSpring(pointerX, { damping: 24, stiffness: 420, mass: .28 })
+  const ringY = useSpring(pointerY, { damping: 24, stiffness: 420, mass: .28 })
+  const [enabled, setEnabled] = useState(false)
+  const [visible, setVisible] = useState(false)
+  const [interactive, setInteractive] = useState(false)
+  const [ripples, setRipples] = useState([])
+
+  useEffect(() => {
+    const finePointer = window.matchMedia('(pointer: fine)')
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const update = () => setEnabled(finePointer.matches && !reducedMotion.matches)
+    update(); finePointer.addEventListener('change', update); reducedMotion.addEventListener('change', update)
+    return () => { finePointer.removeEventListener('change', update); reducedMotion.removeEventListener('change', update) }
+  }, [])
+  useEffect(() => {
+    document.body.classList.toggle('has-custom-cursor', enabled)
+    return () => document.body.classList.remove('has-custom-cursor')
+  }, [enabled])
+  useEffect(() => {
+    if (!enabled) return
+    const isInteractive = (target) => Boolean(target.closest('a, button, input, select, textarea, [role="button"], [data-cursor-interactive]'))
+    const move = (event) => { pointerX.set(event.clientX); pointerY.set(event.clientY); setVisible(true); setInteractive(isInteractive(event.target)) }
+    const leave = () => setVisible(false)
+    const click = (event) => {
+      const id = `${event.clientX}-${event.clientY}-${Date.now()}`
+      setRipples((current) => [...current, { id, x: event.clientX, y: event.clientY }])
+      window.setTimeout(() => setRipples((current) => current.filter((ripple) => ripple.id !== id)), 480)
+    }
+    window.addEventListener('pointermove', move); document.documentElement.addEventListener('mouseleave', leave); window.addEventListener('click', click)
+    return () => { window.removeEventListener('pointermove', move); document.documentElement.removeEventListener('mouseleave', leave); window.removeEventListener('click', click) }
+  }, [enabled, pointerX, pointerY])
+  if (!enabled) return null
+  return <div className="custom-cursor" aria-hidden="true">
+    <motion.div className="cursor-dot" style={{ x: pointerX, y: pointerY }} animate={{ opacity: visible ? 1 : 0 }} />
+    <motion.div className="cursor-ring" style={{ x: ringX, y: ringY }} animate={{ opacity: visible ? (interactive ? .95 : .55) : 0, scale: interactive ? 1.5 : 1 }} transition={{ type: 'spring', damping: 22, stiffness: 340 }} />
+    <AnimatePresence>{ripples.map((ripple) => <motion.div key={ripple.id} className="cursor-ripple" initial={{ x: ripple.x, y: ripple.y, scale: .15, opacity: .8 }} animate={{ scale: 2.4, opacity: 0 }} exit={{ opacity: 0 }} transition={{ duration: .45, ease: 'easeOut' }} />)}</AnimatePresence>
+  </div>
+}
+
+function AuroraBackground() {
+  return <div className="aurora-background" aria-hidden="true"><span className="aurora aurora-cyan" /><span className="aurora aurora-violet" /><span className="aurora aurora-teal" /><span className="aurora aurora-blue" /></div>
 }
 
 function Globe() {
@@ -54,4 +101,8 @@ function App() {
   const clamp = (value) => Math.max(1, Math.min(10, Number(value) || 1))
   return <div className="app-shell"><Hero /><main id="workspace" className="relative z-10 mx-auto -mt-28 max-w-6xl px-5 pb-20 sm:px-8"><div className="ambient-orb ambient-one" /><div className="ambient-orb ambient-two" /><GlassPanel className="workspace-card p-5 sm:p-7"><div className="mb-7"><p className="eyebrow">Question workspace</p><h2 className="mt-2 font-display text-3xl font-bold tracking-tight text-white">Build an interview set</h2><p className="mt-2 text-sm text-slate-300">Choose a role, set your mix, and receive an interview-ready question list.</p></div><div className="grid gap-5 md:grid-cols-3"><label><span className="field-label">Candidate role</span><select className="input" value={role} onChange={e => setRole(e.target.value)}>{roles.map(value => <option key={value}>{value}</option>)}</select></label><label><span className="field-label">Technical questions</span><input className="input" type="number" min="1" max="10" value={technical} onChange={e => setTechnical(clamp(e.target.value))} /></label><label><span className="field-label">Behavioral questions</span><input className="input" type="number" min="1" max="10" value={behavioral} onChange={e => setBehavioral(clamp(e.target.value))} /></label></div><button onClick={generate} disabled={loading} className="glow-button mt-6 w-full justify-center sm:w-auto">{loading ? <LoaderCircle className="animate-spin" size={18} /> : <BrainCircuit size={18} />}{loading ? 'Generating your questions…' : 'Generate questions'}</button></GlassPanel>{error && <ErrorMessage>{error}</ErrorMessage>}<section className="mt-8" aria-live="polite">{loading && <LoadingQuestions />}{result && !loading && <><GlassPanel className="mb-5 flex flex-col justify-between gap-4 border-cyan-300/15 p-5 sm:flex-row sm:items-center"><div><p className="eyebrow text-cyan-300">{result.role}</p><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">{result.summary}</p></div><div className="flex shrink-0 gap-2"><button onClick={copyAll} className="secondary-button">{copied ? <Check size={16} /> : <Clipboard size={16} />}{copied ? 'Copied' : 'Copy all as text'}</button><button onClick={generate} className="secondary-button accent"><RefreshCw size={16} />Regenerate</button></div></GlassPanel><div className="grid gap-5 lg:grid-cols-2"><QuestionList title="Technical" questions={result.technical_questions} technical /><QuestionList title="Behavioral" questions={result.behavioral_questions} /></div></>}</section><section className="mt-16 border-t border-white/[.1] pt-12"><div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="eyebrow">Reference library</p><h2 className="mt-2 font-display text-3xl font-bold tracking-tight text-white">Question bank</h2><p className="mt-2 text-sm text-slate-300">Browse the existing questions by skill.</p></div><label className="relative w-full sm:w-80"><Search className="absolute left-3 top-3.5 text-slate-400" size={18} /><input className="input pl-10" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search questions or skills" /></label></div>{bankError ? <ErrorMessage onRetry={loadBank}>{bankError}</ErrorMessage> : !bank ? <GlassPanel className="mt-6 p-5"><div className="skeleton h-5 w-48" /><div className="skeleton mt-5 h-20 w-full" /></GlassPanel> : <div className="mt-6 grid gap-4 md:grid-cols-2">{entries.map(([skill, groups]) => <GlassPanel key={skill} className="p-5"><div className="mb-4 flex items-center gap-3"><span className="section-icon cyan"><FileQuestion size={17} /></span><h3 className="font-display font-bold capitalize text-white">{skill.replaceAll('_', ' ')}</h3></div>{Object.entries(groups).map(([kind, questions]) => <div key={kind} className="mb-4 last:mb-0"><p className="mb-2 text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">{kind}</p><ul className="space-y-2">{questions.map(question => <li key={question} className="flex gap-2 text-sm leading-5 text-slate-300"><span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-cyan-300" />{question}</li>)}</ul></div>)}</GlassPanel>)}</div>}{bank && !entries.length && <GlassPanel className="mt-6 p-6 text-sm text-slate-400"><Database className="mb-3 text-cyan-300" size={22} />No questions match “{search}”.</GlassPanel>}</section></main><footer className="border-t border-white/[.08] px-5 py-7 text-center text-sm text-slate-500">TalentPrompt AI · Interview preparation made focused.</footer></div>
 }
-export default App
+function AppWithEnhancements() {
+  return <><AuroraBackground /><CustomCursor /><App /></>
+}
+
+export default AppWithEnhancements
