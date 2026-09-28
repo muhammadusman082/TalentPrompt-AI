@@ -192,6 +192,4 @@ Machine Learning Intern at Internee.pk
 
 ---
 
-<div align="center">
-Built as part of the Internee.pk Machine Learning Internship
-</div>
+
